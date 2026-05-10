@@ -1,3 +1,4 @@
+import inspect
 from abc import ABC
 
 from pydantic import BaseModel
@@ -13,6 +14,7 @@ from app.context_window import (
     ToolResultMessage,
 )
 from app.llm_client import LLMClient
+from app import tools as tool_fns
 
 console = Console()
 
@@ -62,6 +64,11 @@ tools = [
             "required": ["pizza", "address"],
         },
     ),
+    Tool(
+        name="end_conversation",
+        description="End the conversation when the user says goodbye or indicates they are done",
+        input_schema={"type": "object", "properties": {}},
+    ),
 ]
 
 
@@ -71,6 +78,12 @@ class AgentInterface(ABC):
 
 
 class PizzaAgent(AgentInterface):
+    _tool_registry = {
+        "get_user_information": tool_fns.get_user_information,
+        "create_order": tool_fns.create_order,
+        "end_conversation": tool_fns.end_conversation,
+    }
+
     def __init__(
         self,
         context: ContextWindow,
@@ -78,6 +91,7 @@ class PizzaAgent(AgentInterface):
     ):
         self.context = context
         self.llm_client = llm_client
+        self.conversation_ended = False
 
     def send_message(self, user_message: str) -> str:
         self.context.add(UserMessage(content=user_message))
@@ -124,16 +138,15 @@ class PizzaAgent(AgentInterface):
         return response.content[0].text if response.content else ""
 
     def _execute_tool(self, tool_name: str, tool_input: dict) -> str:
-        if tool_name == "get_user_information":
-            name = tool_input.get("name", "")
-            return f"User {name} not found in system"
-        elif tool_name == "create_order":
-            pizza_description = tool_input.get("pizza_description", "")
-            address = tool_input.get("address", "")
-            order_id = "ORD12345"
-            return f"Order {order_id} created for {pizza_description} to be delivered to {address}"
-        else:
+        fn = self._tool_registry.get(tool_name)
+        if fn is None:
             return f"Unknown tool: {tool_name}"
+        valid_params = inspect.signature(fn).parameters
+        filtered_input = {k: v for k, v in tool_input.items() if k in valid_params}
+        result = fn(**filtered_input)
+        if tool_name == "end_conversation":
+            self.conversation_ended = True
+        return result
 
     def _print_tool_use(self, tool_use: ToolUse):
         console.print(

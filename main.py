@@ -55,6 +55,9 @@ def main():
                 response = agent.send_message(user_input)
                 console.print(f"\n🤖 [bold yellow]Pizza Bot:[/bold yellow] {response}")
 
+                if agent.conversation_ended:
+                    break
+
             except Exception as e:
                 console.print(f"\n❌ [bold red]Error:[/bold red] {str(e)}")
                 console.print("[dim]Please try again.[/dim]")

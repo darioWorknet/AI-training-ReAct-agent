@@ -2,32 +2,25 @@
 
 This project is to help get you setup with a basic ReAct agent as quickly and as simple as possible.
 
-No fancy frameworks, no complex dependencies, just some simple python code using the Anthropic API directly.
+No fancy frameworks, no complex dependencies, just some simple python code using the LLM API directly.
 
 You'll see that it's actually really simple to do.
 
 Using frameworks (like LangChain) can add a lot of complexity, and hide what is actually going on behind the scenes.
 
-If you are going to be building with Agents, it's important to know how they actually work. And by building your own
-you can have a lot more control over how they behave as well.
+If you are going to be building with Agents, it's important to know how they actually work. And by building your own you can have a lot more control over how they behave as well.
 
-A lot of times is probably best to start with a simple setup like this, with no framework included, and maybe just add
-things like extra dependencies or frameworks later on, if you really see a need.
+A lot of times is probably best to start with a simple setup like this, with no framework included, and maybe just add things like extra dependencies or frameworks later on, if you really see a need.
 
-For more on building out your AI agents, check out
-the ["12 Factor Agents"](https://github.com/humanlayer/12-factor-agents) guide as well. That is a good read.
+For more on building out your AI agents, check out the ["12 Factor Agents"](https://github.com/humanlayer/12-factor-agents) guide as well. That is a good read.
 
 ## What does the agent do?
 
 It's a conversational agent, with tool calling abilities, which means you can do some pretty powerful things it.
 
-For this example, I have set it up as a Pizza Delivery agent that gets your name, address and creates an order, using
-the
-tools it has.
+For this example, I have set it up as a Pizza Delivery agent that gets your name, address and creates an order, using the tools it has.
 
-The point is to demonstrate how to build conversation agent you can interact with in natural language, that has the
-ability
-to call tools, and process the results from those tools to see what to do do next.
+The point is to demonstrate how to build conversation agent you can interact with in natural language, that has the ability to call tools, and process the results from those tools to see what to do do next.
 
 In this example, the agents goal is to:
 
@@ -37,6 +30,68 @@ In this example, the agents goal is to:
 - if you don't exist, to ask for you address
 - to ask what pizza you would like
 - create an order with your name, address and pizza via a tool call
+
+## How does the LLM decide which tool to use?
+
+This is the part that feels like magic but is actually straightforward once you see it.
+
+### The system prompt sets the goal
+
+When the agent starts, the LLM receives a **system prompt** that defines its role and the task it needs to accomplish — in this case, collecting a name, address, and pizza order, then placing it. This prompt acts like a job description: the LLM knows what it's trying to achieve before the first user message arrives.
+
+### Tools are described in plain language
+
+Every tool is sent to the LLM on every API call as a JSON schema that includes:
+
+- **`name`** — the identifier the LLM uses to invoke it
+- **`description`** — plain English explaining what the tool does and when to use it
+- **`input_schema`** — the parameters the LLM must supply
+
+The LLM reads these descriptions and reasons about which tool, if any, is appropriate given the current conversation. There is no routing logic in the Python code — the model makes that decision.
+
+### The ReAct loop: reason → act → observe → repeat
+
+The `PizzaAgent.act()` method implements a loop that mirrors how a person would work through a task:
+
+```
+User message arrives
+       │
+       ▼
+ LLM is called with full conversation history + tool definitions
+       │
+       ├─ stop_reason == "end_turn"  →  return the text reply to the user
+       │
+       └─ stop_reason == "tool_use"  →  the LLM chose a tool
+              │
+              ▼
+        Execute the tool (Python code runs, e.g. looks up a user)
+              │
+              ▼
+        Append tool result to conversation history
+              │
+              ▼
+        Call act() again  ←──────────────────────────────┐
+              │                                           │
+              └─ (LLM now sees the result and may call    │
+                  another tool or produce a text reply) ──┘
+```
+
+The key insight: **the full conversation history — including past tool calls and their results — is sent to the LLM on every request**. This is what lets the model "observe" what happened and decide what to do next. The LLM is not stateful; it's the growing `ContextWindow` that gives it memory.
+
+### Where the decision actually lives
+
+When the LLM decides to use a tool, it returns a content block with `type: "tool_use"` instead of plain text. The agent checks `response.stop_reason`:
+
+- `"tool_use"` → extract the tool name and inputs, execute it via `_execute_tool`, append the result, recurse
+- `"end_turn"` → the LLM produced a text response, return it to the user
+
+Python code never decides *which* tool to call or *when* — it only decides *how* to execute a tool once the LLM has already made that choice. The intelligence is entirely in the model.
+
+### Why this works without a framework
+
+Most agent frameworks add routing layers, state machines, or planner agents on top of this pattern. But for a single-goal agent like this one, the LLM's own reasoning is sufficient — the system prompt + tool descriptions give it everything it needs to sequence the steps correctly on its own.
+
+---
 
 ## Why did I build this?
 
@@ -58,65 +113,3 @@ as
 well, as well as some links to external resource I found really helpful when trying to figure out ReAct agents.
 
 Anyways, let's get strated!
-
-## Getting Started
-
-### Install `uv` and Create a Virtual Environment
-
-First, get `uv` installed. It's a modern package manager for python, and blazingly fast. I tried it out for the first
-time
-in this project, and was wowed with how fast it was
-
-To install uv, run this in your terminal:
-
-`curl -LsSf https://astral.sh/uv/install.sh | sh`
-
-Then restart your terminal so the uv command is available.
-
-You can check that it’s working with:
-
-`uv --version`
-
-Now create and initialise the virtual environment:
-
-```bash
-uv venv
-source .venv/bin/activate
-```
-
-## Install Dependencies
-
-Now install the dependencies:
-
-```bash
-uv sync
-```
-
-## Set Your Anthropic API Key
-
-Now set your Anthropic API key as an environment variable in the .env file
-(can get one from their website if you dont have one yet)
-
-```bash
-ANTHROPIC_API_KEY=
-```
-
-## Run the Agent
-
-Now you can run the agent with:
-
-```bash
-python main.py
-```
-
-This will open up a chat interface in your terminal, where the agent will ask you questions in order to get your
-pizza order and address.
-
-The console output will show all the Tool calls and tool results the agent uses, to make it clear what is going on in
-background as you chat with the agent.
-
-![Pizza Delivery Agent Chat](docs/img/pizza-delivery-agent-chat.png)
-
-To point is to show you how easy it is to setup a nicely working, conversation agent, that has tools at it disposal to
-get things done as well.
-
