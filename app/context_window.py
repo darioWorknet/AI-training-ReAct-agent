@@ -38,5 +38,8 @@ class ToolResultMessage(BaseModel):
 class ContextWindow(BaseModel):
     conversation_history: list
 
-    def add(self, message: UserMessage | AssistantMessage | ToolUseMessage | ToolResultMessage):
+    def add(
+        self,
+        message: UserMessage | AssistantMessage | ToolUseMessage | ToolResultMessage,
+    ):
         self.conversation_history.append(message)

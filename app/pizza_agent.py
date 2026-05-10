@@ -3,9 +3,16 @@ from abc import ABC
 from pydantic import BaseModel
 from rich.console import Console
 from rich.panel import Panel
-from app.context_window import ContextWindow, UserMessage, AssistantMessage, ToolUse, ToolResult, ToolUseMessage, \
-    ToolResultMessage
-from app.claude_client import ClaudeClient
+from app.context_window import (
+    ContextWindow,
+    UserMessage,
+    AssistantMessage,
+    ToolUse,
+    ToolResult,
+    ToolUseMessage,
+    ToolResultMessage,
+)
+from app.llm_client import LLMClient
 
 console = Console()
 
@@ -33,14 +40,9 @@ tools = [
         description="Get users information from their name",
         input_schema={
             "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "description": "The users name"
-                }
-            },
-            "required": ["name"]
-        }
+            "properties": {"name": {"type": "string", "description": "The users name"}},
+            "required": ["name"],
+        },
     ),
     Tool(
         name="create_order",
@@ -50,16 +52,16 @@ tools = [
             "properties": {
                 "pizza_description": {
                     "type": "string",
-                    "description": "A description of the pizza to order, including size and toppings"
+                    "description": "A description of the pizza to order, including size and toppings",
                 },
                 "address": {
                     "type": "string",
-                    "description": "The delivery address for the order"
-                }
+                    "description": "The delivery address for the order",
+                },
             },
-            "required": ["pizza", "address"]
-        }
-    )
+            "required": ["pizza", "address"],
+        },
+    ),
 ]
 
 
@@ -70,12 +72,12 @@ class AgentInterface(ABC):
 
 class PizzaAgent(AgentInterface):
     def __init__(
-            self,
-            context: ContextWindow,
-            claude_client: ClaudeClient
+        self,
+        context: ContextWindow,
+        llm_client: LLMClient,
     ):
         self.context = context
-        self.claude_client = claude_client
+        self.llm_client = llm_client
 
     def send_message(self, user_message: str) -> str:
         self.context.add(UserMessage(content=user_message))
@@ -84,9 +86,9 @@ class PizzaAgent(AgentInterface):
         return response
 
     def act(self) -> str:
-        response = self.claude_client.send_messages_with_tools(
+        response = self.llm_client.send_messages_with_tools(
             messages=[msg.model_dump() for msg in self.context.conversation_history],
-            tools=[tool.model_dump() for tool in tools]
+            tools=[tool.model_dump() for tool in tools],
         )
 
         if response.stop_reason == "tool_use":
@@ -94,16 +96,22 @@ class PizzaAgent(AgentInterface):
             for content_block in response.content:
                 if content_block.type == "tool_use":
                     # Add tool use message
-                    tool_use = ToolUse(id="1", name=content_block.name, input=content_block.input)
+                    tool_use = ToolUse(
+                        id="1", name=content_block.name, input=content_block.input
+                    )
                     tool_use_msg = ToolUseMessage(content=[tool_use])
                     self.context.add(tool_use_msg)
 
                     # Display tool use in orange box
                     self._print_tool_use(tool_use)
-                    tool_result_response = self._execute_tool(tool_use.name, tool_use.input)
+                    tool_result_response = self._execute_tool(
+                        tool_use.name, tool_use.input
+                    )
 
                     # Add tool result to context
-                    tool_result = ToolResult(tool_use_id="1", content=tool_result_response, is_error=False)
+                    tool_result = ToolResult(
+                        tool_use_id="1", content=tool_result_response, is_error=False
+                    )
                     tool_result_message = ToolResultMessage(content=[tool_result])
                     self.context.add(tool_result_message)
 
@@ -128,15 +136,19 @@ class PizzaAgent(AgentInterface):
             return f"Unknown tool: {tool_name}"
 
     def _print_tool_use(self, tool_use: ToolUse):
-        console.print(Panel(
-            f"Tool: {tool_use.name}\nInput: {tool_use.input}",
-            title="🔧 Tool Use",
-            border_style="orange3"
-        ))
+        console.print(
+            Panel(
+                f"Tool: {tool_use.name}\nInput: {tool_use.input}",
+                title="🔧 Tool Use",
+                border_style="orange3",
+            )
+        )
 
     def _print_tool_result(self, tool_result: ToolResult):
-        console.print(Panel(
-            f"Result: {tool_result.content}",
-            title="📊 Tool Result",
-            border_style="red3"
-        ))
+        console.print(
+            Panel(
+                f"Result: {tool_result.content}",
+                title="📊 Tool Result",
+                border_style="red3",
+            )
+        )
