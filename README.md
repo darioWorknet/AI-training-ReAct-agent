@@ -93,6 +93,66 @@ Most agent frameworks add routing layers, state machines, or planner agents on t
 
 ---
 
+## The LangGraph version
+
+The repository also includes a second implementation of the same pizza agent built with [LangGraph](https://github.com/langchain-ai/langgraph). It runs on Ollama only and is kept intentionally parallel to the original so you can compare the two approaches side by side.
+
+**Entry point:** `main_langgraph.py`
+
+```bash
+python main_langgraph.py
+```
+
+**Relevant files:**
+
+| File | Purpose |
+|---|---|
+| `app/langgraph_agent.py` | Graph definition — nodes, edges, tools |
+| `main_langgraph.py` | REPL loop using the compiled graph |
+
+### How it differs from the hand-rolled agent
+
+The same ReAct loop is expressed differently in each version:
+
+| Concept | Hand-rolled (`PizzaAgent`) | LangGraph |
+|---|---|---|
+| Loop | `act()` calls itself recursively | Explicit nodes connected by conditional edges |
+| State | `ContextWindow` (Pydantic list managed manually) | `AgentState` (TypedDict with `add_messages` reducer) |
+| Memory across turns | `context.add(...)` on every step | `MemorySaver` checkpointer — automatic |
+| Tools | JSON schema dicts + `if/elif` dispatch | `@tool` decorated functions + `ToolNode` |
+| Routing logic | `if stop_reason == "tool_use"` in Python | `_should_call_tools` and `_after_tools` edge functions |
+| Model binding | Custom `LLMClient` ABC | `ChatOpenAI.bind_tools()` |
+
+### The graph structure
+
+```
+START
+  │
+  ▼
+call_llm ──── no tool calls ────► END
+  │
+  │ tool calls present
+  ▼
+execute_tools
+  │
+  ├─ end_conversation called ────► END
+  │
+  └─ other tools ─────────────────► call_llm
+```
+
+`call_llm` sends the full message history plus the system prompt to Ollama. `execute_tools` runs whichever tools the model requested, prints them in the same Rich-styled panels as the original, and routes back or terminates based on whether `end_conversation` was called.
+
+### Configuration
+
+The LangGraph agent reads the same `.env` variables as the existing Ollama client:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `OLLAMA_BASE_URL` | `http://192.168.1.12:11434` | Ollama server address |
+| `OLLAMA_MODEL` | `qwen3:1.7b` | Model served by Ollama |
+
+---
+
 ## Why did I build this?
 
 There is something kind of complicated of visualising an Agent that can loop and do things on its own. I think imaging
